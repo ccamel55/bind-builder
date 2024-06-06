@@ -48,7 +48,8 @@ pub fn build_repo(
     }
 
     // After building, install our target to the configure directory.
-    let build_dir = config.build();
+    let build_dir = config.build()
+        .join("build");
 
     Command::new("ninja")
         .arg("install")

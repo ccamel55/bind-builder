@@ -1,12 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
+use crate::variables::manifest_dir;
 
 pub fn clone_repo(
-    path: &Path,
     id: &str,
     url: &str,
     tag: &str,
 ) -> PathBuf {
+
+    let path = manifest_dir();
+    let repo_dir = path.join(id);
 
     let args = [
         "clone", url,
@@ -16,11 +19,17 @@ pub fn clone_repo(
         id
     ];
 
+    // Todo: Update the repo blah blah...
+    if repo_dir.exists() {
+        return repo_dir;
+    }
+
+    // Clone
     Command::new("git")
         .args(args)
-        .current_dir(path)
+        .current_dir(path.clone())
         .status()
         .expect("Could not clone repo, is Git installed?");
 
-    return path.join(id)
+    repo_dir
 }
