@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use cmake::Config;
-use crate::variables::get_profile;
+use crate::variables::{get_profile, target_directory};
 
 fn cmake_executable() -> String {
     env::var("CMAKE")
@@ -15,35 +15,43 @@ pub struct CMakeBuilder {
     cmake_config: Config,
 
     install_directory: PathBuf,
-    build_targets: Vec<String>,
+    build_target: Option<String>
 }
 
 impl CMakeBuilder {
 
-    // todo: support this
-    // pub fn clone(
-    //     name: &str,
-    //     url: &str,
-    //     tag: &str,
-    // ) -> CMakeBuilder {
-    //
-    //     // If we can't find target path then use default of OUT_DIR
-    //     let target_directory = target_directory(out_directory().as_path());
-    //     let clone_directory = target_directory
-    //         .join("bind_builder")
-    //         .join("repo")
-    //         .join(name);
-    //
-    //     let args = [
-    //         "clone", url,
-    //         "--depth", "1",
-    //         "--branch", tag,
-    //         "--recurse",
-    //         name
-    //     ];
-    //
-    //     CMakeBuilder::from(name, clone_directory.as_path())
-    // }
+    pub fn clone(
+        name: &str,
+        url: &str,
+        tag: &str,
+    ) -> CMakeBuilder {
+
+        let target_directory = target_directory();
+        let clone_directory = target_directory.parent().unwrap()
+            .join("git")
+            .join(name);
+
+        if clone_directory.exists() {
+            Command::new("git")
+                .arg("checkout").arg("-f").arg(tag)
+                .current_dir(clone_directory.as_path())
+                .status()
+                .expect("Could not checkout tag, is git installed?");
+        } else {
+            fs::create_dir_all(clone_directory.as_path())
+                .expect("Could not create directory, does the path exist?");
+
+            Command::new("git")
+                .arg("clone").arg(url)
+                .arg("--branch").arg(tag)
+                .arg("--recurse").arg(".")
+                .current_dir(clone_directory.as_path())
+                .status()
+                .expect("Could not clone repo, is git installed?");
+        }
+
+        CMakeBuilder::from(name, clone_directory.as_path())
+    }
 
     pub fn from(
         name: &str,
@@ -57,14 +65,14 @@ impl CMakeBuilder {
             .join(format!("cmake-bind-builder-{}", get_profile().as_str()));
 
         let install_directory = configure_directory
-            .join("bind-builder-install");
+            .join("install");
 
         let mut project = CMakeBuilder {
             name: name.to_string(),
             cmake_config: Config::new(absolute_path),
 
             install_directory: install_directory.clone(),
-            build_targets: Vec::new()
+            build_target: None
         };
 
         project.cmake_config.out_dir(configure_directory);
@@ -215,13 +223,13 @@ impl CMakeBuilder {
         self
     }
 
-    /// Add a build target for the final `cmake` build step, this will
-    /// default to "install" if not specified.
+    /// Specify the build target for the final `cmake` build step, this will
+    /// default to all.
     pub fn build_target(
         &mut self,
         target: &str
     ) -> &mut CMakeBuilder {
-        self.build_targets.push(target.to_string());
+        self.build_target = Some(target.to_string());
         self
     }
 
@@ -232,17 +240,9 @@ impl CMakeBuilder {
     /// command to build the library.
     pub fn build(&mut self) -> CMakeBuilder {
 
-        // Collate all targets into one build string, if no targets, then set no_build_target so
-        // cmake crate doesn't install for us.
-        if self.build_targets.is_empty() {
-            self.cmake_config.no_build_target(true);
-        } else {
-            self.cmake_config.build_target(
-                self.build_targets
-                    .join(" ")
-                    .as_str()
-            );
-        }
+        self.cmake_config.build_target(
+            self.build_target.clone().unwrap_or("all".to_string()).as_str()
+        );
 
         // Build and install by calling install command our selves
         let build_directory = self.cmake_config
@@ -258,16 +258,15 @@ impl CMakeBuilder {
 
         // Make a new object. Since we can't clone/copy cmake::Config :(
         let name = self.name.clone();
-
         let install_directory = self.install_directory.clone();
-        let build_targets = self.build_targets.clone();
+        let build_target = self.build_target.clone();
 
         CMakeBuilder {
             name,
             cmake_config: Config::new(""),
 
             install_directory,
-            build_targets
+            build_target
         }
     }
 
@@ -275,7 +274,5 @@ impl CMakeBuilder {
         &self.install_directory
     }
 
-    pub (crate) fn get_build_targets(&self) -> &Vec<String> {
-        &self.build_targets
-    }
+    pub (crate) fn get_build_target(&self) -> &Option<String> { &self.build_target }
 }

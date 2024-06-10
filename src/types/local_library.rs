@@ -15,6 +15,8 @@ pub struct LocalLibrary {
     install_directory: PathBuf,
 
     link_targets: Vec<String>,
+    system_link_targets: Vec<String>,
+
     include_directories: Vec<PathBuf>,
     library_directories: Vec<PathBuf>,
 }
@@ -26,12 +28,13 @@ impl LocalLibrary {
             install_directory: install_directory.into(),
 
             link_targets: Vec::new(),
+            system_link_targets: Vec::new(),
+
             include_directories: Vec::new(),
             library_directories: Vec::new(),
         };
 
         // Add default include and library directories.
-        // todo: check what default location is for windows
         for include_directory in DEFAULT_INCLUDE_DIRECTORIES {
             local_library.add_include_directory(Path::new(include_directory));
         }
@@ -45,7 +48,6 @@ impl LocalLibrary {
 
     pub fn from(
         repository: CMakeBuilder,
-        link_build_targets: bool,
     ) -> LocalLibrary {
 
         let install_directory = match repository.get_install_directory().exists() {
@@ -53,12 +55,11 @@ impl LocalLibrary {
             false => panic!("Could not find install directory, is repository built?")
         };
 
+        let build_target = repository.get_build_target().clone().unwrap_or("all".to_string());
         let mut local_library = LocalLibrary::new(install_directory);
 
-        if link_build_targets {
-            for build_target in repository.get_build_targets() {
-                local_library.link_target(build_target);
-            }
+        if build_target.to_lowercase() != "all"{
+            local_library.link_target(build_target.as_str());
         }
 
         local_library
@@ -100,12 +101,24 @@ impl LocalLibrary {
         self
     }
 
+    pub fn link_system_target(
+        &mut self,
+        target: &str,
+    ) -> &mut LocalLibrary {
+        self.system_link_targets.push(target.to_string());
+        self
+    }
+
     pub fn get(&self) -> LocalLibrary {
         self.clone()
     }
 
     pub (crate) fn get_link_targets(&self) -> &Vec<String> {
         &self.link_targets
+    }
+
+    pub (crate) fn get_system_link_targets(&self) -> &Vec<String> {
+        &self.system_link_targets
     }
 
     pub (crate) fn get_include_directories(&self) -> &Vec<PathBuf> {

@@ -1,6 +1,5 @@
 use std::env;
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use crate::variables::Platform::{Linux, MacOS, Windows};
 
 #[derive(PartialEq)]
@@ -48,49 +47,30 @@ pub (crate) fn get_profile() -> String {
     env::var("PROFILE").unwrap()
 }
 
-// Credits cxx-build
-// https://docs.rs/cxx-build/latest/src/cxx_build/target.rs.html#10-49
-pub(crate) fn target_directory(out_dir: &Path) -> PathBuf {
+// Credits: https://github.com/Rust-SDL2/rust-sdl2/blob/master/sdl2-sys/build.rs#L388C1-L408C2
+pub (crate) fn target_directory() -> PathBuf {
 
-    if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
-        let target_dir = PathBuf::from(target_dir);
-        return if target_dir.is_absolute() {
-            target_dir
-        } else {
-            out_dir.to_path_buf()
-        };
-    }
-
-    // fs::canonicalize on Windows produces UNC paths which cl.exe is unable to
-    // handle in includes.
-    // https://github.com/rust-lang/rust/issues/42869
-    // https://github.com/alexcrichton/cc-rs/issues/169
-    let mut also_try_canonical = cfg!(not(windows));
-    let mut dir = out_dir.to_owned();
+    // Infer the top level cargo target dir from the OUT_DIR by searching
+    // upwards until we get to $CARGO_TARGET_DIR/build/ (which is always one
+    // level up from the deepest directory containing our package name)
+    let pkg_name = env::var("CARGO_PKG_NAME").unwrap();
+    let mut out_dir = out_directory();
 
     loop {
-        if dir.join(".rustc_info.json").exists()
-            || dir.join("CACHEDIR.TAG").exists()
-            || dir.file_name() == Some(OsStr::new("target"))
-            && dir
-            .parent()
-            .map_or(false, |parent| parent.join("Cargo.toml").exists())
         {
-            return dir
-        }
-
-        if dir.pop() {
-            continue;
-        }
-
-        if also_try_canonical {
-            if let Ok(canonical_dir) = out_dir.canonicalize() {
-                dir = canonical_dir;
-                also_try_canonical = false;
-                continue;
+            let final_path_segment = out_dir.file_name().unwrap();
+            if final_path_segment.to_string_lossy().contains(&pkg_name) {
+                break;
             }
         }
 
-        return out_dir.to_path_buf()
+        if !out_dir.pop() {
+            panic!("Malformed build path: {}", out_dir.to_string_lossy());
+        }
     }
+
+    out_dir.pop();
+    out_dir.pop();
+
+    out_dir
 }

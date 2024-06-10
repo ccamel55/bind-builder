@@ -1,7 +1,9 @@
+use std::fs;
 use std::ops::Add;
-use crate::commands::{add_library_search_path, link_shared_library, link_static_library, print_warning};
+use std::path::Path;
+use crate::commands::{add_library_search_path, link_shared_library, link_static_library};
 use crate::types::local_library::LocalLibrary;
-use crate::variables::{shared_library_extension, static_library_extension};
+use crate::variables::{platform, Platform, shared_library_extension, static_library_extension, target_directory};
 
 pub mod types;
 
@@ -10,41 +12,61 @@ pub (crate) mod commands;
 
 const LIBRARY_NAME_PREFIX: &str = "lib";
 
-// todo: check naming conventions for windows MSVC
 fn get_static_library_name(library_name: &str) -> String {
+    // Omit the prefix for Windows since there is no convention for library names.
+    if platform() == Platform::Windows {
+        return library_name.to_string()
+            .add(static_library_extension());
+    }
+
     LIBRARY_NAME_PREFIX.to_string()
         .add(library_name)
         .add(static_library_extension())
 }
 
-// note: rustc can't link against specific versions of .so
 fn get_shared_library_name(library_name: &str) -> String  {
+    // Omit the prefix for Windows since there is no convention for library names.
+    if platform() == Platform::Windows {
+        return library_name.to_string()
+            .add(shared_library_extension());
+    }
+
     LIBRARY_NAME_PREFIX.to_string()
         .add(library_name)
         .add(shared_library_extension())
 }
 
-// pub fn use_relative_r_path() {
-//     match platform() {
-//         Linux => println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN"),
-//         MacOS => println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path"),
-//         _ => {}
-//     }
-// }
+fn copy_shared_object(
+    target_directory: &Path,
+    library_path: &Path,
+) {
+    if !target_directory.exists() {
+        fs::create_dir_all(target_directory)
+            .expect("Could not create target directory.");
+    }
+
+    if !library_path.exists() {
+        panic!("Could not find shared object: {:?}", library_path);
+    }
+
+    fs::copy(
+        library_path,
+        target_directory.join(library_path.file_name().unwrap())
+    ).expect("Could not copy shared object.");
+}
+
 
 // Extend cc::Build to accept our library
 pub trait BindBuild {
 
-    #[allow(private_bounds)]
     fn bind_library(
         &mut self,
         library: LocalLibrary
     ) -> &mut cc::Build;
 }
 
-impl BindBuild for cc::Build{
+impl BindBuild for cc::Build {
 
-    #[allow(private_bounds)]
     fn bind_library(
         &mut self,
         library: LocalLibrary
@@ -58,6 +80,8 @@ impl BindBuild for cc::Build{
         include_directories.dedup();
         include_directories.retain(|x| x.is_dir());
 
+        self.includes(include_directories);
+
         let mut library_directories = library
             .get_library_directories()
             .clone();
@@ -65,64 +89,49 @@ impl BindBuild for cc::Build{
         library_directories.dedup();
         library_directories.retain(|x| x.is_dir());
 
+        for library_directory in library_directories.iter() {
+            add_library_search_path(library_directory.as_path())
+        }
+
         let mut link_targets = library
             .get_link_targets()
             .clone();
 
         link_targets.dedup();
 
-        let static_libraries: Vec<String> =  link_targets.iter()
-            .filter(|x| {
-                // todo: optimise this
-                for library_directory in library_directories.iter() {
-                    if library_directory
-                        .join(get_static_library_name(x))
-                        .exists() {
-                        return true
-                    }
+        let target_directory = target_directory();
+
+        // Always prefer static libraries over shared libraries
+        for library in link_targets.iter() {
+            for library_directory in library_directories.iter() {
+                let static_library_path = library_directory
+                    .join(get_static_library_name(library));
+
+                let shared_library_path = library_directory
+                    .join(get_shared_library_name(library));
+
+                if static_library_path.exists() {
+                    link_static_library(library);
+                } else if shared_library_path.exists() {
+                    // Copy shared object to target directory
+                    copy_shared_object(
+                        target_directory.as_path(),
+                        shared_library_path.as_path()
+                    );
+                    link_shared_library(library);
                 }
-                false
-            })
-            .cloned()
-            .collect();
-
-        let shared_libraries: Vec<String> =  link_targets.iter()
-            .filter(|x| {
-                // todo: optimise this
-                for library_directory in library_directories.iter() {
-                    if library_directory
-                        .join(get_shared_library_name(x))
-                        .is_file() {
-                        return true
-                    }
-                }
-                false
-            })
-            .cloned()
-            .collect();
-
-        assert!(
-            !static_libraries.is_empty() || !shared_libraries.is_empty(),
-            "Library does not contain linkable targets."
-        );
-
-        // Add header include path
-        self.includes(include_directories);
-
-        // Add library search path
-        for library_directory in library_directories {
-            add_library_search_path(library_directory.as_path())
+            }
         }
 
-        // Link respective libraries
-        for static_library in static_libraries {
-            link_static_library(static_library)
-        }
+        // Link against any system libraries.
+        let mut system_link_targets = library
+            .get_system_link_targets()
+            .clone();
 
-        // todo: option to use built shared library/copy them to program path and link r path
-        for shared_library in shared_libraries {
-            print_warning(format!("Linking shared library: {}", shared_library));
-            link_shared_library(shared_library)
+        system_link_targets.dedup();
+
+        for library in system_link_targets.iter() {
+            link_shared_library(library);
         }
 
         self

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::path::Path;
 
+#[allow(dead_code)]
 pub (crate) fn print_warning<T: Display>(message: T) {
     println!("cargo:warning={}", message);
 }
