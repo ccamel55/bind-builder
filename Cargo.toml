@@ -5,4 +5,5 @@ edition = "2021"
 include = ["src"]
 
 [dependencies]
+cc = "1.0.99"
 cmake = "0.1.50"

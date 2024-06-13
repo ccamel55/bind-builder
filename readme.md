@@ -1,8 +1,20 @@
 # bind-builder
 
-Rust build dependency that helps you build cxx bindings.
+Rust build dependency that helps you build and link native libraries.
 
-**Very WIP**
+### Note 
+
+To view the output from the build script, run `cargo build -vv`.
+
+To allow your binary to search for shared libraries in its directory, add the following to the binaries `build.rs`:
+
+```rust
+#[cfg(target_os="macos")]
+println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+
+#[cfg(target_os="linux")]
+println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+```
 
 ## Requirements
 
@@ -15,13 +27,8 @@ See [cmake documentation](https://cmake.org/cmake/help/latest/command/install.ht
 
 - git
 - cmake
-- ninja
+- ninja (recommended)
 - a C++ compiler
-
-## Todo:
-
-- Handle repo's properly (pull, don't just clone each time)
-- Support dynamic libraries (link against them, copy them with binary)
 
 ## References
 
