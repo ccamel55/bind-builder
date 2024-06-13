@@ -10,6 +10,9 @@ const DEFAULT_INCLUDE_DIRECTORIES: [&str; 1] = [
     "include",
 ];
 
+/// Local library configuration.
+///
+/// This contains all the information required to link against a local library.
 #[derive(Clone)]
 pub struct LocalLibrary {
     install_directory: PathBuf,
@@ -22,6 +25,10 @@ pub struct LocalLibrary {
 }
 
 impl LocalLibrary {
+
+    /// Create a new `LocalLibrary` instance from a specific path.
+    ///
+    /// This is useful when you want to ship binaries with your crate.
     pub fn new(install_directory: &Path) -> LocalLibrary {
 
         let mut local_library = LocalLibrary {
@@ -46,6 +53,7 @@ impl LocalLibrary {
         local_library
     }
 
+    /// Create a new `LocalLibrary` instance from a `CMakeBuilder`.
     pub fn from(
         repository: CMakeBuilder,
     ) -> LocalLibrary {
@@ -65,6 +73,9 @@ impl LocalLibrary {
         local_library
     }
 
+    /// Add a directory that will be searched for include files.
+    ///
+    /// The path should be relative to the installation directory.
     pub fn add_include_directory(
         &mut self,
         path: &Path,
@@ -79,6 +90,9 @@ impl LocalLibrary {
         self
     }
 
+    /// Add a directory that will be searched for library files.
+    ///
+    /// The path should be relative to the installation directory.
     pub fn add_library_directory(
         &mut self,
         path: &Path,
@@ -93,6 +107,13 @@ impl LocalLibrary {
         self
     }
 
+    /// Add a target to link against.
+    ///
+    /// Before linking, the crate will check if the library exists. If it finds a static and shared
+    /// library with the same name, it will always prefer the static library.
+    ///
+    /// When linking against a shared library, the shared object will be copied to the target
+    /// directory.
     pub fn link_target(
         &mut self,
         target: &str,
@@ -101,6 +122,12 @@ impl LocalLibrary {
         self
     }
 
+    /// Add a system target to link against.
+    ///
+    /// Unlike `link_target`, this will not check if the library exists and will always assume that
+    /// the library is shared and available on the system.
+    ///
+    /// system link targets will not be copied to the target directory.
     pub fn link_system_target(
         &mut self,
         target: &str,
@@ -109,6 +136,7 @@ impl LocalLibrary {
         self
     }
 
+    /// Finalize the `LocalLibrary` configuration.
     pub fn get(&self) -> LocalLibrary {
         self.clone()
     }

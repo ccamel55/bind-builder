@@ -10,6 +10,7 @@ fn cmake_executable() -> String {
         .unwrap_or_else(|_| String::from("cmake"))
 }
 
+/// Builder for cloning, configuring, building and installing a CMake project.
 pub struct CMakeBuilder {
     name: String,
     cmake_config: Config,
@@ -20,6 +21,10 @@ pub struct CMakeBuilder {
 
 impl CMakeBuilder {
 
+    /// Create a new `CMakeBuilder` from a git repository.
+    ///
+    /// This function uses the git command therefore it will inherit the git configuration and
+    /// credentials from your system.
     pub fn clone(
         name: &str,
         url: &str,
@@ -53,6 +58,7 @@ impl CMakeBuilder {
         CMakeBuilder::from(name, clone_directory.as_path())
     }
 
+    /// Create a new `CMakeBuilder` from an existing cmake project.
     pub fn from(
         name: &str,
         path: &Path,

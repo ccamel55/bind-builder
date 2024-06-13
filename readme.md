@@ -1,8 +1,6 @@
 # bind-builder
 
-Rust build dependency that helps you build cxx bindings.
-
-**Very WIP**
+Rust build dependency that helps you build and link native libraries.
 
 ### Note 
 
@@ -31,11 +29,6 @@ See [cmake documentation](https://cmake.org/cmake/help/latest/command/install.ht
 - cmake
 - ninja (recommended)
 - a C++ compiler
-
-## Todo:
-
-- Handle repo's properly (pull, don't just clone each time)
-- Support dynamic libraries (link against them, copy them with binary)
 
 ## References
 
