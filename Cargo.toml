@@ -3,6 +3,9 @@ name = "bind-builder"
 version = "0.1.0"
 edition = "2021"
 include = ["src"]
+license-file = "LICENSE"
+description = "Build dependency to help make crates that rely on native dependencies more portable."
+readme = "readme.md"
 
 [dependencies]
 cc = "1.0.99"
