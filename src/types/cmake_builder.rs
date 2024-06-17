@@ -13,8 +13,8 @@ fn cmake_executable() -> String {
 /// Builder for cloning, configuring, building and installing a CMake project.
 pub struct CMakeBuilder {
     name: String,
-    cmake_config: Config,
-
+    cmake_config: Option<Config>,
+    build_directory: Option<PathBuf>,
     install_directory: PathBuf,
     build_target: Option<String>
 }
@@ -36,24 +36,52 @@ impl CMakeBuilder {
             .join("git")
             .join(name);
 
-        if clone_directory.exists() {
-            Command::new("git")
-                .arg("checkout").arg("-f").arg(tag)
-                .current_dir(clone_directory.as_path())
-                .status()
-                .expect("Could not checkout tag, is git installed?");
-        } else {
+        // Setup temp repository if it does not exist, instead of cloning we do this to
+        // reduce the amount of stuff we have to pull.
+        if !clone_directory.exists() {
             fs::create_dir_all(clone_directory.as_path())
                 .expect("Could not create directory, does the path exist?");
 
             Command::new("git")
-                .arg("clone").arg(url)
-                .arg("--branch").arg(tag)
-                .arg("--recurse").arg(".")
+                .arg("init")
                 .current_dir(clone_directory.as_path())
                 .status()
-                .expect("Could not clone repo, is git installed?");
+                .expect("Could not init repo, is git installed?");
+
+            Command::new("git")
+                .arg("remote")
+                .arg("add")
+                .arg("origin")
+                .arg(url)
+                .current_dir(clone_directory.as_path())
+                .status()
+                .expect("Could not add remote, is git installed?");
         }
+
+        Command::new("git")
+            .arg("fetch")
+            .arg("origin")
+            .arg(tag)
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not fetch repo, is git installed?");
+
+        Command::new("git")
+            .arg("reset")
+            .arg("--hard")
+            .arg(tag)
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not checkout tag, is git installed?");
+
+        Command::new("git")
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not init submodules, is git installed?");
 
         CMakeBuilder::from(name, clone_directory.as_path())
     }
@@ -75,17 +103,38 @@ impl CMakeBuilder {
 
         let mut project = CMakeBuilder {
             name: name.to_string(),
-            cmake_config: Config::new(absolute_path),
-
+            cmake_config: Some(Config::new(absolute_path)),
+            build_directory: None,
             install_directory: install_directory.clone(),
             build_target: None
         };
 
-        project.cmake_config.out_dir(configure_directory);
+        project.cmake_config.as_mut().unwrap().out_dir(configure_directory);
+        project.cmake_config.as_mut().unwrap().define("CMAKE_SKIP_INSTALL_ALL_DEPENDENCY", "true");
 
-        // Allow some module to not be build before installing and install to our target directory
-        project.cmake_config.define("CMAKE_SKIP_INSTALL_ALL_DEPENDENCY", "true");
-        project.cmake_config.define("CMAKE_INSTALL_PREFIX", install_directory.to_str().unwrap());
+        project
+    }
+
+    /// Create a new `CMakeBuilder` from an existing cmake build directory.
+    pub fn from_build_directory(
+        name: &str,
+        build_path: &Path,
+    ) -> CMakeBuilder {
+
+        let absolute_path = fs::canonicalize(build_path)
+            .expect("Path not found, make sure the build directory exists.");
+
+        let install_directory = absolute_path
+            .join(format!("cmake-bind-builder-{}", get_profile().as_str()))
+            .join("install");
+
+        let project = CMakeBuilder {
+            name: name.to_string(),
+            cmake_config: None,
+            build_directory: Some(absolute_path),
+            install_directory: install_directory.clone(),
+            build_target: None
+        };
 
         project
     }
@@ -96,7 +145,10 @@ impl CMakeBuilder {
     /// if set. Otherwise, it will guess the best generator to use based on the
     /// build target.
     pub fn generator<T: AsRef<OsStr>>(&mut self, generator: T) -> &mut CMakeBuilder {
-        self.cmake_config.generator(generator);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.generator(generator);
+        }
+
         self
     }
 
@@ -105,28 +157,40 @@ impl CMakeBuilder {
     ///
     /// If unset, will use the default toolset of the selected generator.
     pub fn generator_toolset<T: AsRef<OsStr>>(&mut self, toolset_name: T) -> &mut CMakeBuilder {
-        self.cmake_config.generator_toolset(toolset_name);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.generator_toolset(toolset_name);
+        }
+
         self
     }
 
     /// Adds a custom flag to pass down to the C compiler, supplementing those
     /// that this library already passes.
     pub fn cflag<P: AsRef<OsStr>>(&mut self, flag: P) -> &mut CMakeBuilder {
-        self.cmake_config.cflag(flag);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.cflag(flag);
+        }
+
         self
     }
 
     /// Adds a custom flag to pass down to the C++ compiler, supplementing those
     /// that this library already passes.
     pub fn cxxflag<P: AsRef<OsStr>>(&mut self, flag: P) -> &mut CMakeBuilder {
-        self.cmake_config.cxxflag(flag);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.cxxflag(flag);
+        }
+
         self
     }
 
     /// Adds a custom flag to pass down to the ASM compiler, supplementing those
     /// that this library already passes.
     pub fn asmflag<P: AsRef<OsStr>>(&mut self, flag: P) -> &mut CMakeBuilder {
-        self.cmake_config.asmflag(flag);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.asmflag(flag);
+        }
+
         self
     }
 
@@ -136,7 +200,10 @@ impl CMakeBuilder {
             K: AsRef<OsStr>,
             V: AsRef<OsStr>,
     {
-        self.cmake_config.define(k, v);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.define(k, v);
+        }
+
         self
     }
 
@@ -146,7 +213,10 @@ impl CMakeBuilder {
     /// This registration will modify the `CMAKE_PREFIX_PATH` environment
     /// variable for the build system generation step.
     pub fn register_dep(&mut self, dep: &str) -> &mut CMakeBuilder {
-        self.cmake_config.register_dep(dep);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.register_dep(dep);
+        }
+
         self
     }
 
@@ -155,7 +225,10 @@ impl CMakeBuilder {
     /// This is automatically scraped from `$TARGET` which is set for Cargo
     /// build scripts so it's not necessary to call this from a build script.
     pub fn target(&mut self, target: &str) -> &mut CMakeBuilder {
-        self.cmake_config.target(target);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.target(target);
+        }
+
         self
     }
 
@@ -164,7 +237,10 @@ impl CMakeBuilder {
     /// This is automatically scraped from `$HOST` which is set for Cargo
     /// build scripts so it's not necessary to call this from a build script.
     pub fn host(&mut self, host: &str) -> &mut CMakeBuilder {
-        self.cmake_config.host(host);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.host(host);
+        }
+
         self
     }
 
@@ -179,7 +255,10 @@ impl CMakeBuilder {
     ///   * otherwise `CMAKE_BUILD_TYPE=RelWithDebInfo`
     /// * if `opt-level={s,z}` then `CMAKE_BUILD_TYPE=MinSizeRel`
     pub fn profile(&mut self, profile: &str) -> &mut CMakeBuilder {
-        self.cmake_config.profile(profile);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.profile(profile);
+        }
+
         self
     }
 
@@ -187,19 +266,28 @@ impl CMakeBuilder {
     ///
     /// This option defaults to `false`, and affect only msvc targets.
     pub fn static_crt(&mut self, static_crt: bool) -> &mut CMakeBuilder {
-        self.cmake_config.static_crt(static_crt);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.static_crt(static_crt);
+        }
+
         self
     }
 
     /// Add an argument to the `cmake` configure step
     pub fn configure_arg<A: AsRef<OsStr>>(&mut self, arg: A) -> &mut CMakeBuilder {
-        self.cmake_config.configure_arg(arg);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.configure_arg(arg);
+        }
+
         self
     }
 
     /// Add an argument to the final `cmake` build step
     pub fn build_arg<A: AsRef<OsStr>>(&mut self, arg: A) -> &mut CMakeBuilder {
-        self.cmake_config.build_arg(arg);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.build_arg(arg);
+        }
+
         self
     }
 
@@ -210,7 +298,10 @@ impl CMakeBuilder {
             K: AsRef<OsStr>,
             V: AsRef<OsStr>,
     {
-        self.cmake_config.env(key, value);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.env(key, value);
+        }
+
         self
     }
 
@@ -219,13 +310,19 @@ impl CMakeBuilder {
     /// In some cases, when you have a big project, you can disable
     /// subsequents runs of cmake to make `cargo build` faster.
     pub fn always_configure(&mut self, always_configure: bool) -> &mut CMakeBuilder {
-        self.cmake_config.always_configure(always_configure);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.always_configure(always_configure);
+        }
+
         self
     }
 
     /// Sets very verbose output.
     pub fn very_verbose(&mut self, value: bool) -> &mut CMakeBuilder {
-        self.cmake_config.very_verbose(value);
+        if let Some(config) = self.cmake_config.as_mut() {
+            config.very_verbose(value);
+        }
+
         self
     }
 
@@ -246,19 +343,33 @@ impl CMakeBuilder {
     /// command to build the library.
     pub fn build(&mut self) -> CMakeBuilder {
 
-        self.cmake_config.build_target(
-            self.build_target.clone().unwrap_or("all".to_string()).as_str()
-        );
+        let build_directory = match self.cmake_config.as_mut() {
+            Some(config) => {
+                config.build_target(
+                    self.build_target.clone().unwrap_or("all".to_string()).as_str()
+                )
+                    // We also need to set CMAKE_INSTALL_PREFIX while building otherwise the
+                    // cmake crate will default and override with an incorrect path.
+                    .define("CMAKE_INSTALL_PREFIX", self.install_directory.clone().to_str().unwrap())
 
-        // Build and install by calling install command our selves
-        let build_directory = self.cmake_config
-            .build()
-            .join("build");
+                    .build()
+                    .join("build")
+            },
+            None => {
+                self.build_directory.clone()
+                    .expect("Could not find build directory argument, is it set?")
+            }
+        };
 
         Command::new(cmake_executable())
+            // Actual install command
             .arg("--install")
             .arg(".")
-            .current_dir(build_directory)
+
+            .arg("--prefix")
+            .arg(self.install_directory.clone().to_str().unwrap())
+
+            .current_dir(build_directory.clone())
             .status()
             .expect("Could not install repo, is cmake installed?");
 
@@ -269,8 +380,8 @@ impl CMakeBuilder {
 
         CMakeBuilder {
             name,
-            cmake_config: Config::new(""),
-
+            cmake_config: None,
+            build_directory: Some(build_directory.clone()),
             install_directory,
             build_target
         }
