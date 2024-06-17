@@ -36,24 +36,52 @@ impl CMakeBuilder {
             .join("git")
             .join(name);
 
-        if clone_directory.exists() {
-            Command::new("git")
-                .arg("checkout").arg("-f").arg(tag)
-                .current_dir(clone_directory.as_path())
-                .status()
-                .expect("Could not checkout tag, is git installed?");
-        } else {
+        // Setup temp repository if it does not exist, instead of cloning we do this to
+        // reduce the amount of stuff we have to pull.
+        if !clone_directory.exists() {
             fs::create_dir_all(clone_directory.as_path())
                 .expect("Could not create directory, does the path exist?");
 
             Command::new("git")
-                .arg("clone").arg(url)
-                .arg("--branch").arg(tag)
-                .arg("--recurse").arg(".")
+                .arg("init")
                 .current_dir(clone_directory.as_path())
                 .status()
-                .expect("Could not clone repo, is git installed?");
+                .expect("Could not init repo, is git installed?");
+
+            Command::new("git")
+                .arg("remote")
+                .arg("add")
+                .arg("origin")
+                .arg(url)
+                .current_dir(clone_directory.as_path())
+                .status()
+                .expect("Could not add remote, is git installed?");
         }
+
+        Command::new("git")
+            .arg("fetch")
+            .arg("origin")
+            .arg(tag)
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not fetch repo, is git installed?");
+
+        Command::new("git")
+            .arg("reset")
+            .arg("--hard")
+            .arg(tag)
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not checkout tag, is git installed?");
+
+        Command::new("git")
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .current_dir(clone_directory.as_path())
+            .status()
+            .expect("Could not init submodules, is git installed?");
 
         CMakeBuilder::from(name, clone_directory.as_path())
     }
@@ -87,7 +115,7 @@ impl CMakeBuilder {
         project
     }
 
-    //! Create a new `CMakeBuilder` from an existing cmake build directory.
+    /// Create a new `CMakeBuilder` from an existing cmake build directory.
     pub fn from_build_directory(
         name: &str,
         build_path: &Path,
@@ -320,6 +348,10 @@ impl CMakeBuilder {
                 config.build_target(
                     self.build_target.clone().unwrap_or("all".to_string()).as_str()
                 )
+                    // We also need to set CMAKE_INSTALL_PREFIX while building otherwise the
+                    // cmake crate will default and override with an incorrect path.
+                    .define("CMAKE_INSTALL_PREFIX", self.install_directory.clone().to_str().unwrap())
+
                     .build()
                     .join("build")
             },
