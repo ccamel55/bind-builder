@@ -92,8 +92,16 @@ impl CMakeBuilder {
         path: &Path,
     ) -> CMakeBuilder {
 
-        let absolute_path = fs::canonicalize(path)
-            .expect("Path not found, is repo cloned?");
+        // Windows does not like canonicalize on some paths. It will result in cl.exe
+        // failing to use the path.
+        // https://github.com/rust-lang/rust/issues/42869
+        // https://github.com/alexcrichton/cc-rs/issues/169
+        let absolute_path = if cfg!(windows) {
+            path.to_path_buf()
+        } else {
+            fs::canonicalize(path)
+                .expect("Path not found, make sure the build directory exists.")
+        };
 
         let configure_directory = absolute_path
             .join(format!("cmake-bind-builder-{}", get_profile().as_str()));
@@ -121,8 +129,16 @@ impl CMakeBuilder {
         build_path: &Path,
     ) -> CMakeBuilder {
 
-        let absolute_path = fs::canonicalize(build_path)
-            .expect("Path not found, make sure the build directory exists.");
+        // Windows does not like canonicalize on some paths. It will result in cl.exe
+        // failing to use the path.
+        // https://github.com/rust-lang/rust/issues/42869
+        // https://github.com/alexcrichton/cc-rs/issues/169
+        let absolute_path = if cfg!(windows) {
+            build_path.to_path_buf()
+        } else {
+            fs::canonicalize(build_path)
+                .expect("Path not found, make sure the build directory exists.")
+        };
 
         let install_directory = absolute_path
             .join(format!("cmake-bind-builder-{}", get_profile().as_str()))
