@@ -14,6 +14,9 @@ Before you start, make sure that the cmake project you want to build has install
 for the libraries you want to link against. See
 [cmake documentation](https://cmake.org/cmake/help/latest/command/install.html) to learn more.
 
+**Note: it is very important that install targets are set up correctly. Some libraries like `zlib` hardcode
+`${CMAKE_INSTALL_PREFIX}` which results in generated binaries being misplaced.** 
+
 ### Example
 
 ```rust

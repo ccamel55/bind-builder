@@ -1,11 +1,12 @@
 [package]
 name = "bind-builder"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 include = ["src"]
 license-file = "LICENSE"
 description = "Build dependency to help make crates that rely on native dependencies more portable."
 readme = "readme.md"
+repository = "https://github.com/ccamel55/bind-builder/tree/main"
 
 [dependencies]
 cc = "1.0.99"
